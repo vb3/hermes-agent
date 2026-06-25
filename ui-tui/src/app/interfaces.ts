@@ -116,7 +116,7 @@ export interface BillingOverlayCtx {
    * `needs_remote_spending` instead of tearing down. Settlement/most errors are
    * still reported via transcript lines (the poll is non-blocking).
    */
-  charge: (amount: string) => Promise<BillingChargeOutcome>
+  charge: (amount: string, idempotencyKey?: string) => Promise<BillingChargeOutcome>
   /**
    * Run the `billing.step_up` device flow (grant Remote Spending). Resolves
    * `true` when the grant lands. The browser opens via the gateway's
@@ -134,6 +134,12 @@ export interface BillingOverlayCtx {
 /** Pending confirm built when leaving the buy/autoreload screen. */
 export interface BillingPendingCharge {
   amount: string
+  /**
+   * Stable idempotency key for THIS purchase, minted when the amount is chosen.
+   * Reused across the step-up replay so a re-charge after the grant dedups
+   * server-side (and a double-submit collapses to one charge).
+   */
+  idempotencyKey?: string
 }
 
 export interface BillingOverlayState {

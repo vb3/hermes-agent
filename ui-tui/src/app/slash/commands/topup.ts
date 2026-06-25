@@ -304,11 +304,14 @@ const buildOverlayCtx = (ctx: SlashRunCtx, sys: Sys, s: BillingStateResponse): B
 
         return false
       }),
-  charge: (amount: string): Promise<BillingChargeOutcome> => {
+  charge: (amount: string, idempotencyKey?: string): Promise<BillingChargeOutcome> => {
     sys('💳 Charge submitted — confirming settlement…')
 
     return ctx.gateway
-      .rpc<BillingChargeResponse>('billing.charge', { amount_usd: amount })
+      .rpc<BillingChargeResponse>('billing.charge', {
+        amount_usd: amount,
+        ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {})
+      })
       .then((r): BillingChargeOutcome => {
         if (!r) {
           return 'error'

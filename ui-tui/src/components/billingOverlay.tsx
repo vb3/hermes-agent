@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 import { Box, Text, useInput } from '@hermes/ink'
 import { useRef, useState } from 'react'
 
@@ -45,6 +47,7 @@ export function BillingOverlay({ onClose, onPatch, overlay, t }: BillingOverlayP
         <ConfirmScreen
           amount={overlay.pendingCharge?.amount ?? ''}
           ctx={ctx}
+          idempotencyKey={overlay.pendingCharge?.idempotencyKey}
           onBack={() => onPatch({ pendingCharge: null, screen: 'buy' })}
           onClose={onClose}
           onPatch={onPatch}
@@ -55,7 +58,13 @@ export function BillingOverlay({ onClose, onPatch, overlay, t }: BillingOverlayP
       {screen === 'autoreload' && <AutoReloadScreen ctx={ctx} onClose={onClose} onPatch={onPatch} s={s} t={t} />}
       {screen === 'limit' && <LimitScreen ctx={ctx} onClose={onClose} onPatch={onPatch} s={s} t={t} />}
       {screen === 'stepup' && (
-        <StepUpScreen amount={overlay.pendingCharge?.amount ?? ''} ctx={ctx} onClose={onClose} t={t} />
+        <StepUpScreen
+          amount={overlay.pendingCharge?.amount ?? ''}
+          ctx={ctx}
+          idempotencyKey={overlay.pendingCharge?.idempotencyKey}
+          onClose={onClose}
+          t={t}
+        />
       )}
     </Box>
   )
@@ -198,7 +207,10 @@ function BuyScreen({ ctx, onPatch, s, t }: ScreenProps) {
   const [error, setError] = useState<null | string>(null)
 
   const toConfirm = (amount: string) => {
-    onPatch({ pendingCharge: { amount }, screen: 'confirm' })
+    // Mint the idempotency key here (purchase identity = this amount). It rides
+    // pendingCharge into Confirm AND the step-up replay, so a retried charge
+    // dedups server-side; a fresh amount selection gets a fresh key.
+    onPatch({ pendingCharge: { amount, idempotencyKey: randomUUID() }, screen: 'confirm' })
   }
 
   const pickPreset = (i: number) => {
@@ -310,6 +322,7 @@ function BuyScreen({ ctx, onPatch, s, t }: ScreenProps) {
 function ConfirmScreen({
   amount,
   ctx,
+  idempotencyKey,
   onBack,
   onClose,
   onPatch,
@@ -318,6 +331,7 @@ function ConfirmScreen({
 }: {
   amount: string
   ctx: BillingOverlayState['ctx']
+  idempotencyKey?: string
   onBack: () => void
   onClose: () => void
   onPatch: (next: Partial<BillingOverlayState>) => void
@@ -339,7 +353,7 @@ function ConfirmScreen({
 
     submittingRef.current = true
     setSubmitting(true)
-    void ctx.charge(amount).then(outcome => {
+    void ctx.charge(amount, idempotencyKey).then(outcome => {
       if (outcome === 'needs_remote_spending') {
         // Resumable step-up: keep the modal MOUNTED, switch to the stepup
         // screen (which holds pendingCharge.amount for the post-grant replay).
@@ -416,11 +430,13 @@ function ConfirmScreen({
 function StepUpScreen({
   amount,
   ctx,
+  idempotencyKey,
   onClose,
   t
 }: {
   amount: string
   ctx: BillingOverlayState['ctx']
+  idempotencyKey?: string
   onClose: () => void
   t: Theme
 }) {
@@ -458,7 +474,7 @@ function StepUpScreen({
 
     setPhase('resuming')
     ctx.sys('✓ Terminal billing enabled — resuming your purchase.')
-    void ctx.charge(amount).then(outcome => {
+    void ctx.charge(amount, idempotencyKey).then(outcome => {
       // If the replay STILL can't spend (grant raced/expired or downscoped),
       // say so — don't close on a reassuring line with no charge made.
       if (outcome === 'needs_remote_spending') {
